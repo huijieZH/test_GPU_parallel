@@ -6,12 +6,14 @@ import tqdm
 import os
 from time import time
 from torch import nn
-import sys
-
+import numpy as np
 import argparse
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--num_GPU", type=int)
 parser.add_argument("--batch_size", type=int)
+parser.add_argument("--type_GPU", type=str)
 args = parser.parse_args()
 
 assert args.num_GPU in [1, 2, 3, 4]
@@ -41,4 +43,7 @@ for data in tqdm.tqdm(train_dataloader):
     (pred_data[:, :4] - rgb).mean().backward()
     optimizer.step()
     time_lst.append(time() - tt)
-print(time_lst)
+
+if not os.path.exists("exp"):
+    os.mkdir("exp")
+np.save(f"exp/{args.type_GPU}:numGPU{args.num_GPU}_bs{args.batch_size}_DP", np.array(time_lst))

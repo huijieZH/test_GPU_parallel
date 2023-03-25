@@ -5,14 +5,14 @@ from torch import optim
 import tqdm
 import os
 from time import time
-from torch import nn
-import sys
-
+import numpy as np
 import argparse
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--local_rank", type=int)
 parser.add_argument("--num_GPU", type=int)
 parser.add_argument("--batch_size", type=int)
+parser.add_argument("--type_GPU", type=str)
 args = parser.parse_args()
 torch.cuda.set_device(args.local_rank)
 torch.distributed.init_process_group(backend='nccl')
@@ -45,4 +45,7 @@ for data in tqdm.tqdm(train_dataloader):
     (pred_data[:, :4] - rgb).mean().backward()
     optimizer.step()
     time_lst.append(time() - tt)
-print(time_lst)
+    
+if not os.path.exists("exp"):
+    os.mkdir("exp")
+np.save(f"exp/{args.type_GPU}:numGPU{args.num_GPU}_bs{args.batch_size}_DDP", np.array(time_lst))
