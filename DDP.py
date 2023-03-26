@@ -7,9 +7,11 @@ import os
 from time import time
 import numpy as np
 import argparse
+import torch.distributed as dist
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--local_rank", type=int)
+
 parser.add_argument("--num_GPU", type=int)
 parser.add_argument("--batch_size", type=int)
 parser.add_argument("--type_GPU", type=str)
@@ -17,23 +19,20 @@ args = parser.parse_args()
 torch.cuda.set_device(args.local_rank)
 torch.distributed.init_process_group(backend='nccl')
 
-assert args.num_GPU in [1, 2, 3, 4]
-if args.num_GPU == 1:
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-elif args.num_GPU == 2:
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1'
-elif args.num_GPU == 3:
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2'
-elif args.num_GPU == 4:
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0, 1, 2, 3'
-
 assert args.batch_size in [32, 64, 128, 256, 512, 1024, 2048]
 model = DiT_L_8().to("cuda")
-model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True, device_ids = [args.local_rank])
 
 train_dataset = SampleDataset(data_size = 32)
-train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,num_workers=8)
+train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+
+train_batch_sampler = torch.utils.data.BatchSampler(train_sampler, args.batch_size, drop_last = False)
+
+train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_sampler=train_batch_sampler, pin_memory = True, num_workers=1)
+
 optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+
+print(f"Starting exp {args.local_rank}:  {args.type_GPU}:numGPU{args.num_GPU}_bs{args.batch_size}_DDP")
 
 time_lst = []
 for data in tqdm.tqdm(train_dataloader):
@@ -45,7 +44,9 @@ for data in tqdm.tqdm(train_dataloader):
     (pred_data[:, :4] - rgb).mean().backward()
     optimizer.step()
     time_lst.append(time() - tt)
-    
-if not os.path.exists("exp"):
-    os.mkdir("exp")
-np.save(f"exp/{args.type_GPU}:numGPU{args.num_GPU}_bs{args.batch_size}_DDP", np.array(time_lst))
+print(time_lst)
+
+torch.save(model.module.state_dict(), f"t{args.local_rank}.pt")
+# if not os.path.exists("exp"):
+#     os.mkdir("exp")
+# np.save(f"exp/{args.type_GPU}:numGPU{args.num_GPU}_bs{args.batch_size}_DDP", np.array(time_lst))
